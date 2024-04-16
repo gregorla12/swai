@@ -43,14 +43,15 @@ class TextDataset(Dataset):
         self.examples = []
         df=pd.DataFrame(os.listdir("llm-vul-main\llm-vul-main\VJBench-trans"),columns=['project'])
         df['processed_func']=df.apply(lambda x: open(os.path.join("llm-vul-main\llm-vul-main\VJBench-trans",x['project']+"\\"+x['project']+"_original_method.java"),'r').read(), axis=1)
-        #df = pd.read_csv(file_path)
-        funcs = df["processed_func"].tolist()
+
         #labels = df["target"].tolist()
         train, test = train_test_split(df, test_size=0.2)
         if file_type == "train":
             df=train
         elif file_type == "test":
             df=test
+        #df = pd.read_csv(file_path)
+        funcs = df["processed_func"].tolist()
         for i in tqdm(range(len(funcs))):
             self.examples.append(convert_examples_to_features(funcs[i], 1, tokenizer))
 
@@ -59,29 +60,6 @@ class TextDataset(Dataset):
 
     def __getitem__(self, i):
         return torch.tensor(self.examples[i].input_ids),torch.tensor(self.examples[i].label)
-def getAllInputData():
-    df = pd.DataFrame()
-    #for name in os.listdir("llm-vul-main\llm-vul-main\VJBench-trans"):
-    #    # Open file processed_func
-    #    #df.loc[len(df)]
-    #    vulnerabilityFolderPath=os.path.join("llm-vul-main\llm-vul-main\VJBench-trans", name)
-    #    if os.path.isdir(vulnerabilityFolderPath):
-    #        originalMethodFile=os.path.join(vulnerabilityFolderPath,name+"_original_method.java")
-    #        #pd.read_csv(originalMethodFile, header = None, sep="\n")
-    #        print(open(originalMethodFile,'r').read())
-#
-    #print()
-    df=pd.DataFrame(os.listdir("llm-vul-main\llm-vul-main\VJBench-trans"),columns=['project'])
-    df['processed_func']=df.apply(lambda x: open(os.path.join("llm-vul-main\llm-vul-main\VJBench-trans",x['project']+"\\"+x['project']+"_original_method.java"),'r').read(), axis=1)
-
-    #filelist = os.listdir("llm-vul-main\llm-vul-main\VJBench-trans")
-    #read them into pandas
-    #df_list = [pd.read_csv(os.path.join("llm-vul-main\llm-vul-main\VJBench-trans",folderName+"\\"+folderName+"_original_method.java"), header = None, sep="\n") for folderName in filelist]
-    #concatenate them together
-    #big_df = pd.concat(df_list)
-    #df=pd.concat([file for file in filelist])
-    print()
-
 
 def evaluate(model, tokenizer, eval_dataset, eval_when_training=False):
     #build dataloader
@@ -230,17 +208,7 @@ def train(train_dataset, model, tokenizer, eval_dataset):
                         logger.info("Saving model checkpoint to %s", output_dir)
 
 
-
-
-
-
-
-
-
-
 if __name__ == "__main__":
-
-    #getAllInputData()
     config = RobertaConfig.from_pretrained("./model")
     config.num_labels = 1
     config.num_attention_heads = 12
