@@ -43,8 +43,8 @@ if __name__ == "__main__":
     #this does the argument parsing
     parser = argparse.ArgumentParser()
     #these are the number of functions used from the datasets. 0 for none at all and -1 for unlimited
-    parser.add_argument("-i", "--ilmvul",nargs='?', const=0, type=int,default=0)
-    parser.add_argument("-b", "--bigvul",nargs='?', const=0, type=int,default=0) 
+    parser.add_argument("-i", "--ilmvul",nargs='?', const=-1, type=int,default=0)
+    parser.add_argument("-b", "--bigvul",nargs='?', const=-1, type=int,default=0) 
     args = parser.parse_args()
 
 
