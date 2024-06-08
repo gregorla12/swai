@@ -27,129 +27,151 @@ from sklearn.model_selection import cross_val_score
 from numpy import mean
 from numpy import absolute
 from numpy import sqrt
+import argparse
 
 # %% [markdown]
 # # preprocessing functions for both datasets
 
+
+if __name__ == "__main__":
+# %%
+    #this does the argument parsing
+    parser = argparse.ArgumentParser()
+    #these are the number of functions used from the datasets. 0 for none at all and -1 for unlimited
+    parser.add_argument("-i", "--ilmvul",nargs='?', const=0, type=int,default=0)
+    parser.add_argument("-b", "--bigvul",nargs='?', const=0, type=int,default=0) 
+    args = parser.parse_args()
+
 # %% [markdown]
 # This function calculates the features. 
-
 # %%
-feature_length=15
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-tokenizer = RobertaTokenizer.from_pretrained("./model")
-model = RobertaModel.from_pretrained("./model")
-model.to(device)
-def calculateFeatures(line, previousLines):
-    code_tokens = tokenizer.tokenize(line)[:feature_length]
-    source_tokens = [tokenizer.cls_token]
-    for pLine in previousLines:
-        source_tokens+=tokenizer.tokenize(pLine)[:feature_length]+[tokenizer.sep_token]
-    source_tokens+=code_tokens + [tokenizer.sep_token]
-    source_ids = tokenizer.convert_tokens_to_ids(source_tokens)
-    context_embeddings=model(torch.tensor(source_ids)[None,:])[0]
-    return context_embeddings.sum(dim=1)[0].detach().numpy()
+    feature_length=15
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    tokenizer = RobertaTokenizer.from_pretrained("./model")
+    model = RobertaModel.from_pretrained("./model")
+    model.to(device)
+    def calculateFeatures(line, previousLines):
+        code_tokens = tokenizer.tokenize(line)[:feature_length]
+        source_tokens = [tokenizer.cls_token]
+        for pLine in previousLines:
+            source_tokens+=tokenizer.tokenize(pLine)[:feature_length]+[tokenizer.sep_token]
+        source_tokens+=code_tokens + [tokenizer.sep_token]
+        source_ids = tokenizer.convert_tokens_to_ids(source_tokens)
+        context_embeddings=model(torch.tensor(source_ids)[None,:])[0]
+        return context_embeddings.sum(dim=1)[0].detach().numpy()
 
 
-# %% [markdown]
-# This takes a function with metadata as it is extracted from either the big vul dataset or the ILm vul dataset (the columns code and flaw_line_no are used) and outputs it as a dataframe with the columns 'originalIndex', 'line', 'vulnerable'. Empty lines and brackets only lines are removed. 
+    # %% [markdown]
+    # This takes a function with metadata as it is extracted from either the big vul dataset or the ILm vul dataset (the columns code and flaw_line_no are used) and outputs it as a dataframe with the columns 'originalIndex', 'line', 'vulnerable'. Empty lines and brackets only lines are removed. 
 
-# %%
-def functionToDF(data):
-    return pd.DataFrame.from_records([(ind,line.strip(),line in data['flaw_line_no']) for ind, line in enumerate(data['code'].split('\n')) if line.strip() not in ['','{','}','};'] ], columns=['originalIndex', 'line', 'vulnerable'])
-
-
-# %% [markdown]
-# This function prepares the original dataset with entire methods stored in one line into a dataframe with individual lines in of code per line. Additionally, it is possible to define the size of the context used as the number of previous lines. These are stored in a list in reverse order. 
-
-# %%
-previousLines=2
-def dataSetToDataFrame(originalDataset):
-    result=pd.DataFrame()
-    for index,data in originalDataset.iterrows():
-        newLine=functionToDF(data)
-        for i in range(1,previousLines+1):
-            newLine['prevousLine'+str(i)] = newLine['line'].shift(periods=i)
-        newLine['prevous']=newLine[['prevousLine'+str(i) for i in range(1,previousLines+1)]].apply(lambda row: list(row.values.astype(str)), axis=1)
-        newLine['features']=newLine.apply(lambda row:calculateFeatures(row['line'],row['prevous']),axis=1)
-        result = pd.concat([result,newLine.drop(columns=['prevousLine'+str(i) for i in range(1,previousLines+1)]) ])
-    return result
+    # %%
+    def functionToDF(data):
+        return pd.DataFrame.from_records([(ind,line.strip(),line in data['flaw_line_no']) for ind, line in enumerate(data['code'].split('\n')) if line.strip() not in ['','{','}','};'] ], columns=['originalIndex', 'line', 'vulnerable'])
 
 
+    # %% [markdown]
+    # This function prepares the original dataset with entire methods stored in one line into a dataframe with individual lines in of code per line. Additionally, it is possible to define the size of the context used as the number of previous lines. These are stored in a list in reverse order. 
 
-# %% [markdown]
-# # Big-Vul dataset
+    # %%
+    previousLines=2
+    def dataSetToDataFrame(originalDataset):
+        result=pd.DataFrame()
+        for index,data in originalDataset.iterrows():
+            newLine=functionToDF(data)
+            for i in range(1,previousLines+1):
+                newLine['prevousLine'+str(i)] = newLine['line'].shift(periods=i)
+            newLine['prevous']=newLine[['prevousLine'+str(i) for i in range(1,previousLines+1)]].apply(lambda row: list(row.values.astype(str)), axis=1)
+            newLine['features']=newLine.apply(lambda row:calculateFeatures(row['line'],row['prevous']),axis=1)
+            result = pd.concat([result,newLine.drop(columns=['prevousLine'+str(i) for i in range(1,previousLines+1)]) ])
+        return result
 
-# %%
-df_bigVul=json.load(open("Big-Vul-dataset/data.json"))
-df_bigVul=random.sample(df_bigVul, 10)#reduce dataset size, for testing only!
-df_bigVul=pd.DataFrame(df_bigVul)
-df_bigVul.drop(columns=['vul','bigvul_id'])#remove columns that are not needed
 
-# %% [markdown]
-# # Ilm-vul dataset
 
-# %% [markdown]
-# This code adds the code of the original method. The dataset has additional files with partial transformations. Maybe, they are more useful for us, feel free to modify this.
+    # %% [markdown]
+    # # Big-Vul dataset
 
-# %%
-df_Ilm=pd.DataFrame(os.listdir("llm-vul-main\llm-vul-main\VJBench-trans"),columns=['project'])
-df_Ilm['code']=df_Ilm.apply(lambda x: open(os.path.join("llm-vul-main\llm-vul-main\VJBench-trans",x['project']+"\\"+x['project']+"_original_method.java"),'r').read(), axis=1)
+    #only execute below if we want to use this dataset
+    if args.bigvul!=0:
+        # %%
+        df_bigVul=json.load(open("Big-Vul-dataset/data.json"))
+        if args.bigvul!=-1:
+            df_bigVul=random.sample(df_bigVul, args.bigvul)#reduce dataset size, for testing only!
+        df_bigVul=pd.DataFrame(df_bigVul)
+        df_bigVul.drop(columns=['vul','bigvul_id'])#remove columns that are not needed
 
-# %% [markdown]
-# This adds the location of the bug in the original method. It is a list with 2 elements (start and end line); usually the same.
+    # %% [markdown]
+    # # Ilm-vul dataset
 
-# %%
-df_Ilm['location_original_method']=df_Ilm.apply(lambda x:json.load(open(os.path.join("llm-vul-main\llm-vul-main\VJBench-trans",x['project']+"\\"+"buggyline_location.json")))['original'],axis=1)
+    # %% [markdown]
+    # This code adds the code of the original method. The dataset has additional files with partial transformations. Maybe, they are more useful for us, feel free to modify this.
 
-# %%
-df_Ilm['flaw_line_no']=df_Ilm.apply(lambda row:list(range(row['location_original_method'][0][0],row['location_original_method'][0][1]+1)),axis=1)  #convert the beginning and end location to a list containing all vulnerable lines. Assumption: there is only one vulnerable location.
-df_Ilm=df_Ilm.drop(columns=['location_original_method','project' ])#delete the column with start and end of the vulnerable location as this is no longer needed as well as the project column
-df_Ilm=df_Ilm.sample( 10)#reduce dataset size, for testing only!
-df_Ilm
+    if args.ilmvul!=0:
+        # %%
+        df_Ilm=pd.DataFrame(os.listdir("llm-vul-main\llm-vul-main\VJBench-trans"),columns=['project'])
+        df_Ilm['code']=df_Ilm.apply(lambda x: open(os.path.join("llm-vul-main\llm-vul-main\VJBench-trans",x['project']+"\\"+x['project']+"_original_method.java"),'r').read(), axis=1)
 
-# %% [markdown]
-# # data preprocessing for both datasets
+        # %% [markdown]
+        # This adds the location of the bug in the original method. It is a list with 2 elements (start and end line); usually the same.
 
-# %% [markdown]
-# combine both datasets into one as they should have the same structure now. This dataset now contains rows with the entire functions and the line location of the vulnerable line(s). Please note that the data format for flaw_line_no is slightly different.
+        # %%
+        df_Ilm['location_original_method']=df_Ilm.apply(lambda x:json.load(open(os.path.join("llm-vul-main\llm-vul-main\VJBench-trans",x['project']+"\\"+"buggyline_location.json")))['original'],axis=1)
 
-# %%
-df_complete=pd.concat([df_bigVul,df_Ilm])
+        # %%
+        df_Ilm['flaw_line_no']=df_Ilm.apply(lambda row:list(range(row['location_original_method'][0][0],row['location_original_method'][0][1]+1)),axis=1)  #convert the beginning and end location to a list containing all vulnerable lines. Assumption: there is only one vulnerable location.
+        df_Ilm=df_Ilm.drop(columns=['location_original_method','project' ])#delete the column with start and end of the vulnerable location as this is no longer needed as well as the project column
+        if args.ilmvul!=-1:
+            df_Ilm=df_Ilm.sample(args.ilmvul)#reduce dataset size, for testing only!
+        df_Ilm #nice output for notebook-people
 
-# %% [markdown]
-# Split the dataset into training and testing based on functions, so that all lines from a function are either entirely test or training
+    # %% [markdown]
+    # # data preprocessing for both datasets
 
-# %%
-train, test = train_test_split(df_complete, test_size=0.2, random_state=42)
+    # %% [markdown]
+    # combine both datasets into one as they should have the same structure now. This dataset now contains rows with the entire functions and the line location of the vulnerable line(s). Please note that the data format for flaw_line_no is slightly different.
 
-# %%
-train=dataSetToDataFrame(train)
-test=dataSetToDataFrame(test)
+    if args.bigvul!=0 and args.ilmvul!=0:
+        # %%
+        #combine both datasets
+        df_complete=pd.concat([df_bigVul,df_Ilm])
+    if args.bigvul!=0 and args.ilmvul==0: 
+        # %%
+        #use only bigvul
+        df_complete=df_bigVul
+    if args.bigvul==0 and args.ilmvul!=0: 
+        # %%
+        #use only ilmvul
+        df_complete=df_Ilm    
 
-# %% [markdown]
-# # classification
+    # %% [markdown]
+    # Split the dataset into training and testing based on functions, so that all lines from a function are either entirely test or training
 
-# %%
-rf = RandomForestClassifier(max_depth=50, n_estimators=15, max_features=5, random_state=42)
-rf.fit(list(train['features']),list(train['vulnerable']))
-rf.score(list(test['features']),list(test['vulnerable'])) 
+    # %%
+    train, test = train_test_split(df_complete, test_size=0.2, random_state=42)
 
-# %% [markdown]
-# # k-fold cross validation
+    # %%
+    train=dataSetToDataFrame(train)
+    test=dataSetToDataFrame(test)
 
-# %%
-train_test=dataSetToDataFrame(df_complete)
+    # %% [markdown]
+    # # classification
 
-# %%
-cv = KFold(n_splits=5, random_state=1, shuffle=True)
-rf = RandomForestClassifier(max_depth=50, n_estimators=15, max_features=5, random_state=42)
-scores = cross_val_score(rf, train_test['features'], train_test['vulnerable'], scoring='neg_mean_squared_error',
-                         cv=cv, n_jobs=-1)
+    # %%
+    rf = RandomForestClassifier(max_depth=50, n_estimators=15, max_features=5, random_state=42)
+    rf.fit(list(train['features']),list(train['vulnerable']))
+    rf.score(list(test['features']),list(test['vulnerable'])) 
 
-# %%
-sqrt(mean(absolute(scores)))
+    # %% [markdown]
+    # # k-fold cross validation
 
-# %%
+    # %%
+    train_test=dataSetToDataFrame(df_complete)
 
-# %%
+    # %%
+    cv = KFold(n_splits=5, random_state=1, shuffle=True)
+    rf = RandomForestClassifier(max_depth=50, n_estimators=15, max_features=5, random_state=42)
+    scores = cross_val_score(rf, train_test['features'], train_test['vulnerable'], scoring='neg_mean_squared_error',
+                             cv=cv, n_jobs=-1)
+
+    # %%
+    sqrt(mean(absolute(scores)))
+
