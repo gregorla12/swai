@@ -29,6 +29,7 @@ from numpy import absolute
 from numpy import sqrt
 import argparse
 import logging
+import math
 
 # %% [markdown]
 # # preprocessing functions for both datasets
@@ -45,7 +46,14 @@ if __name__ == "__main__":
     #these are the number of functions used from the datasets. 0 for none at all and -1 for unlimited
     parser.add_argument("-i", "--ilmvul",nargs='?', const=-1, type=int,default=0)
     parser.add_argument("-b", "--bigvul",nargs='?', const=-1, type=int,default=0) 
+    parser.add_argument("-l",'--level',nargs='?', const=-1, type=int,default=0)#0 for line level, 1 for function level
     args = parser.parse_args()
+    ilmvul=args.ilmvul
+    bigvul=args.bigvul
+# %%
+#for testing in jupyter notebooks 
+#ilmvul=10
+#bigvul=10
 
 
 # %% [markdown]
@@ -81,7 +89,7 @@ if __name__ == "__main__":
 
     # %%
     previousLines=2
-    def dataSetToDataFrame(originalDataset):
+    def dataSetToDataFrameLineLevel(originalDataset):
         result=pd.DataFrame()
         for index,data in originalDataset.iterrows():
             newLine=functionToDF(data)
@@ -92,20 +100,37 @@ if __name__ == "__main__":
             result = pd.concat([result,newLine.drop(columns=['prevousLine'+str(i) for i in range(1,previousLines+1)]) ])
         return result
 
+    # %%
+    feature_length_function=150
+    def calculateFeaturesFunction(function):
+        code_tokens = tokenizer.tokenize(function)[:feature_length_function]
+        source_tokens = [tokenizer.cls_token]
+        source_tokens+=code_tokens + [tokenizer.sep_token]
+        source_ids = tokenizer.convert_tokens_to_ids(source_tokens)
+        context_embeddings=model(torch.tensor(source_ids)[None,:])[0]
+        return context_embeddings.sum(dim=1)[0].detach().numpy()
+
+
+    # %%
+    def dataSetToDataFrameFunctionLevel(originalDataset):
+        originalDataset['features']=originalDataset.apply(lambda x:calculateFeaturesFunction(x['code']),axis=1)
+        originalDataset['vulnerable']=originalDataset.apply(lambda x: x['vul'] if  not math.isnan(x['vul']) else 1,axis=1).astype('bool') #always define the Ilm dataset as vulnerable as it contains only vulnerable functions
+        return originalDataset
+
 # %% [markdown]
 #     # # Big-Vul dataset
 
     # %%
     #only execute below if we want to use this dataset
-    if args.bigvul!=0:
+    if bigvul!=0:
         # %%
         logging.info("preparing bigvul dataset")
         df_bigVul=json.load(open("Big-Vul-dataset/data.json"))
-        if args.bigvul!=-1:
-            df_bigVul=random.sample(df_bigVul, args.bigvul)#reduce dataset size, for testing only!
+        if bigvul!=-1:
+            df_bigVul=random.sample(df_bigVul, bigvul)#reduce dataset size, for testing only!
             logging.info("bigvul dataset randomly sampled")
         df_bigVul=pd.DataFrame(df_bigVul)
-        df_bigVul.drop(columns=['vul','bigvul_id'])#remove columns that are not needed
+        df_bigVul.drop(columns=['bigvul_id'])#remove columns that are not needed
         logging.info("bigvul dataset loaded")
 
 # %% [markdown]
@@ -114,7 +139,7 @@ if __name__ == "__main__":
 # %% [markdown]
 #     # This code adds the code of the original method. The dataset has additional files with partial transformations. Maybe, they are more useful for us, feel free to modify this.
     # %%
-    if args.ilmvul!=0:
+    if ilmvul!=0:
         # %%
         logging.info("preparing Ilm dataset")
         df_Ilm=pd.DataFrame(os.listdir("llm-vul-main\llm-vul-main\VJBench-trans"),columns=['project'])
@@ -129,8 +154,8 @@ if __name__ == "__main__":
         # %%
         df_Ilm['flaw_line_no']=df_Ilm.apply(lambda row:list(range(row['location_original_method'][0][0],row['location_original_method'][0][1]+1)),axis=1)  #convert the beginning and end location to a list containing all vulnerable lines. Assumption: there is only one vulnerable location.
         df_Ilm=df_Ilm.drop(columns=['location_original_method','project' ])#delete the column with start and end of the vulnerable location as this is no longer needed as well as the project column
-        if args.ilmvul!=-1:
-            df_Ilm=df_Ilm.sample(args.ilmvul)#reduce dataset size, for testing only!
+        if ilmvul!=-1:
+            df_Ilm=df_Ilm.sample(ilmvul)#reduce dataset size, for testing only!
             logging.info("Ilm dataset randomly sampled")
         df_Ilm #nice output for notebook-people
         logging.info("Ilm dataset loaded")
@@ -142,22 +167,22 @@ if __name__ == "__main__":
 #     # combine both datasets into one as they should have the same structure now. This dataset now contains rows with the entire functions and the line location of the vulnerable line(s). Please note that the data format for flaw_line_no is slightly different.
 
     # %%
-    if args.bigvul!=0 and args.ilmvul!=0:
+    if bigvul!=0 and ilmvul!=0:
         #combine both datasets
         # %%
         df_complete=pd.concat([df_bigVul,df_Ilm])
     # %%
-    if args.bigvul!=0 and args.ilmvul==0: 
+    if bigvul!=0 and ilmvul==0: 
         #use only bigvul
         # %%
         df_complete=df_bigVul
     # %%
-    if args.bigvul==0 and args.ilmvul!=0: 
+    if bigvul==0 and ilmvul!=0: 
         # %%
         #use only ilmvul
         df_complete=df_Ilm    
     # %%
-    if args.bigvul==0 and args.ilmvul==0:
+    if bigvul==0 and ilmvul==0:
         # what to do
         logging.critical("no dataset selected. Use -i or -b options")     
 
@@ -169,8 +194,18 @@ if __name__ == "__main__":
     train, test = train_test_split(df_complete, test_size=0.2, random_state=42)
 
     # %%
-    train=dataSetToDataFrame(train)
-    test=dataSetToDataFrame(test)
+    if args.level==0:
+        # %%
+        logging.info("using line level classification")
+        train=dataSetToDataFrameLineLevel(train)
+        test=dataSetToDataFrameLineLevel(test)
+    # %%
+    if args.level==1:
+        # %%
+        logging.info("using function level classification")
+        train=dataSetToDataFrameFunctionLevel(train)
+        test=dataSetToDataFrameFunctionLevel(test)
+
 
 # %% [markdown]
 #     # # classification
@@ -182,12 +217,15 @@ if __name__ == "__main__":
     score=rf.score(list(test['features']),list(test['vulnerable'])) 
     logging.info("score: "+str(score))
 
+
+
+
 # %% [markdown]
 #     # # k-fold cross validation
 
     # %%
     logging.info("k-fold validation")
-    train_test=dataSetToDataFrame(df_complete)
+    train_test=dataSetToDataFrameLineLevel(df_complete)
 
     # %%
     cv = KFold(n_splits=5, random_state=1, shuffle=True)
