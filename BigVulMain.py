@@ -61,8 +61,11 @@ if __name__ == "__main__":
     # %%
     feature_length=15
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    tokenizer = RobertaTokenizer.from_pretrained("./model")
-    model = RobertaModel.from_pretrained("./model")
+    logging.info("cuda: "+str(torch.cuda.is_available()))
+    tokenizer = RobertaTokenizer.from_pretrained("microsoft/codebert-base")
+    #tokenizer = RobertaTokenizer.from_pretrained("./model")
+    #model = RobertaModel.from_pretrained("./model")
+    model = RobertaModel.from_pretrained("microsoft/codebert-base")
     model.to(device)
     logging.info("model and tokenizer loaded")
     def calculateFeatures(line, previousLines):
