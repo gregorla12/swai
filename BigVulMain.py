@@ -99,7 +99,7 @@ if __name__ == "__main__":
             for i in range(1,previousLines+1):
                 newLine['prevousLine'+str(i)] = newLine['line'].shift(periods=i)
             newLine['prevous']=newLine[['prevousLine'+str(i) for i in range(1,previousLines+1)]].apply(lambda row: list(row.values.astype(str)), axis=1)
-            newLine['features']=newLine.apply(lambda row:calculateFeatures(row['line'].toDevice(device),row['prevous'].toDevice(device)),axis=1)
+            newLine['features']=newLine.apply(lambda row:calculateFeatures(row['line'],row['prevous']),axis=1)
             result = pd.concat([result,newLine.drop(columns=['prevousLine'+str(i) for i in range(1,previousLines+1)]) ])
         return result
 
@@ -110,14 +110,14 @@ if __name__ == "__main__":
         source_tokens = [tokenizer.cls_token]
         source_tokens+=code_tokens + [tokenizer.sep_token]
         source_ids = tokenizer.convert_tokens_to_ids(source_tokens)
-        context_embeddings=model(torch.tensor(source_ids)[None,:])[0]
+        context_embeddings=model(torch.tensor(source_ids).toDevice(device)[None,:])[0]
         return context_embeddings.sum(dim=1)[0].detach().numpy()
 
 
     # %%
     def dataSetToDataFrameFunctionLevel(originalDataset):
-        originalDataset['features']=originalDataset.apply(lambda x:calculateFeaturesFunction(x['code'].toDevice(device)),axis=1)
-        originalDataset['vulnerable']=originalDataset.apply(lambda x: x['vul'] if  not math.isnan(x['vul'].toDevice(device)) else 1,axis=1).astype('bool') #always define the Ilm dataset as vulnerable as it contains only vulnerable functions
+        originalDataset['features']=originalDataset.apply(lambda x:calculateFeaturesFunction(x['code']),axis=1)
+        originalDataset['vulnerable']=originalDataset.apply(lambda x: x['vul'] if  not math.isnan(x['vul']) else 1,axis=1).astype('bool') #always define the Ilm dataset as vulnerable as it contains only vulnerable functions
         return originalDataset
 
 # %% [markdown]
